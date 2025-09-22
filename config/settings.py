@@ -74,7 +74,7 @@ class AppConfig:
     """Configuración general de la aplicación."""
     
     # Título de la aplicación
-    APP_TITLE: str = "Forecast Financiero."
+    APP_TITLE: str = "Forecast Fiscal."
     
     # Descripción
     APP_DESCRIPTION: str = """
