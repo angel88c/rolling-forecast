@@ -265,7 +265,10 @@ class ForecastCalculator:
             amount_adjusted=amount_adjusted,
             probability=opportunity.probability,
             lead_time_original=getattr(opportunity, 'lead_time_original', opportunity.lead_time),
-            lead_time_adjusted=opportunity.lead_time
+            lead_time_adjusted=opportunity.lead_time,
+            region=opportunity.region,
+            company=opportunity.company,
+            gross_margin_total=opportunity.gross_margin
         )
     
     def _add_weeks(self, date: datetime, weeks: float) -> datetime:
@@ -362,32 +365,52 @@ class ForecastCalculator:
         months = set()
         
         for event in billing_events:
-            project_key = f"{event.opportunity_name} ({event.bu.value})"
+            # Usar solo el nombre del proyecto como clave, sin BU
+            project_key = event.opportunity_name
+            bu_key = event.bu.value
+            company_key = event.company if event.company else 'Sin Clasificar'
             month_key = event.month_year
             
-            if project_key not in forecast_data:
-                forecast_data[project_key] = {}
+            # Crear clave compuesta para identificar proyecto único con BU
+            unique_key = f"{project_key}|{bu_key}"
             
-            if month_key not in forecast_data[project_key]:
-                forecast_data[project_key][month_key] = 0
+            if unique_key not in forecast_data:
+                forecast_data[unique_key] = {
+                    'project_name': project_key,
+                    'bu': bu_key,
+                    'company': company_key,
+                    'monthly_data': {}
+                }
             
-            forecast_data[project_key][month_key] += event.amount_adjusted
+            if month_key not in forecast_data[unique_key]['monthly_data']:
+                forecast_data[unique_key]['monthly_data'][month_key] = 0
+            
+            forecast_data[unique_key]['monthly_data'][month_key] += event.amount_adjusted
             months.add(month_key)
         
         # Ordenar meses cronológicamente
         sorted_months = self._sort_months(list(months))
         
-        # Crear tabla final
+        # Crear tabla final con columnas separadas para Proyecto, BU y Company
         table_data = []
-        for project, monthly_data in forecast_data.items():
-            row = {'Proyecto': project}
+        monthly_totals = {month: 0 for month in sorted_months}
+        
+        for unique_key, project_info in forecast_data.items():
+            row = {
+                'Proyecto': project_info['project_name'],
+                'BU': project_info['bu'],
+                'Empresa': project_info['company']
+            }
             for month in sorted_months:
-                row[month] = monthly_data.get(month, 0)
+                amount = project_info['monthly_data'].get(month, 0)
+                row[month] = amount
+                monthly_totals[month] += amount
             table_data.append(row)
         
         return {
             'data': table_data,
-            'columns': ['Proyecto'] + sorted_months
+            'columns': ['Proyecto', 'BU', 'Empresa'] + sorted_months,
+            'monthly_totals': monthly_totals
         }
     
     def _sort_months(self, months: List[str]) -> List[str]:
@@ -414,3 +437,109 @@ class ForecastCalculator:
         # Ordenar por fecha y retornar solo los nombres
         month_dates.sort(key=lambda x: x[0])
         return [month_str for _, month_str in month_dates]
+    
+    def create_cost_of_sale_table(self, billing_events: List[BillingEvent]) -> Dict:
+        """
+        Crea la tabla de Costo de Venta.
+        
+        Muestra el costo de venta (Amount - Gross Margin) para cada proyecto,
+        colocando el valor únicamente en el mes del último evento de facturación.
+        
+        Args:
+            billing_events: Lista de eventos de facturación
+            
+        Returns:
+            Dict: Datos de la tabla de costo de venta
+        """
+        if not billing_events:
+            return {'data': [], 'columns': []}
+        
+        # Agrupar eventos por proyecto
+        project_data = {}
+        months = set()
+        
+        for event in billing_events:
+            project_key = event.opportunity_name
+            bu_key = event.bu.value
+            company_key = event.company if event.company else 'Sin Clasificar'
+            month_key = event.month_year
+            
+            # Crear clave única para proyecto + BU
+            unique_key = f"{project_key}|{bu_key}"
+            
+            if unique_key not in project_data:
+                project_data[unique_key] = {
+                    'project_name': project_key,
+                    'bu': bu_key,
+                    'company': company_key,
+                    'amount_total': 0,
+                    'gross_margin': event.gross_margin_total if event.gross_margin_total else 0,
+                    'events': [],
+                    'last_event_month': None,
+                    'last_event_date': None
+                }
+            
+            # Registrar evento
+            project_data[unique_key]['events'].append({
+                'date': event.date,
+                'month': month_key,
+                'amount': event.amount
+            })
+            
+            # Actualizar último evento si es más reciente
+            if (project_data[unique_key]['last_event_date'] is None or 
+                event.date > project_data[unique_key]['last_event_date']):
+                project_data[unique_key]['last_event_date'] = event.date
+                project_data[unique_key]['last_event_month'] = month_key
+            
+            months.add(month_key)
+        
+        # Ordenar meses cronológicamente
+        sorted_months = self._sort_months(list(months))
+        
+        # Crear tabla final
+        table_data = []
+        monthly_totals = {month: 0 for month in sorted_months}
+        total_amount = 0
+        total_gross_margin = 0
+        total_cost_of_sale = 0
+        
+        for unique_key, project_info in project_data.items():
+            # Calcular amount total sumando todos los eventos del proyecto
+            amount_total = sum(event['amount'] for event in project_info['events'])
+            gross_margin = project_info['gross_margin']
+            cost_of_sale = amount_total - gross_margin if amount_total > 0 else 0
+            
+            # Acumular totales generales
+            total_amount += amount_total
+            total_gross_margin += gross_margin
+            total_cost_of_sale += cost_of_sale
+            
+            # Crear fila con proyecto y BU
+            row = {
+                'Proyecto': project_info['project_name'],
+                'BU': project_info['bu'],
+                'Empresa': project_info['company'],
+                'Amount Total': amount_total,
+                'Gross Margin': gross_margin,
+                'Costo de Venta': cost_of_sale
+            }
+            
+            # Colocar el costo de venta solo en el mes del último evento
+            for month in sorted_months:
+                if month == project_info['last_event_month']:
+                    row[month] = cost_of_sale
+                    monthly_totals[month] += cost_of_sale
+                else:
+                    row[month] = 0
+            
+            table_data.append(row)
+        
+        return {
+            'data': table_data,
+            'columns': ['Proyecto', 'BU', 'Empresa', 'Amount Total', 'Gross Margin', 'Costo de Venta'] + sorted_months,
+            'monthly_totals': monthly_totals,
+            'total_amount': total_amount,
+            'total_gross_margin': total_gross_margin,
+            'total_cost_of_sale': total_cost_of_sale
+        }

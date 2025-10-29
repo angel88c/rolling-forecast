@@ -49,6 +49,9 @@ class Opportunity:
         probability: Probabilidad de éxito (0-1)
         paid_in_advance: Monto pagado por adelantado (opcional)
         payment_terms: Términos de pago
+        region: Código de región (US, MX, etc.)
+        company: Clasificación de empresa (LLC, SAPI)
+        gross_margin: Margen bruto (valor absoluto)
     """
     
     name: str
@@ -59,6 +62,9 @@ class Opportunity:
     probability: float
     paid_in_advance: Optional[float] = None
     payment_terms: Optional[str] = None
+    region: Optional[str] = None
+    company: Optional[str] = None
+    gross_margin: Optional[float] = None
     
     def __post_init__(self):
         """Validaciones post-inicialización."""
@@ -90,6 +96,9 @@ class BillingEvent:
         probability: Probabilidad aplicada
         lead_time_original: Lead time original
         lead_time_adjusted: Lead time ajustado
+        region: Código de región
+        company: Clasificación de empresa
+        gross_margin_total: Margen bruto total del proyecto
     """
     
     opportunity_name: str
@@ -101,6 +110,9 @@ class BillingEvent:
     probability: float
     lead_time_original: float
     lead_time_adjusted: float
+    region: Optional[str] = None
+    company: Optional[str] = None
+    gross_margin_total: Optional[float] = None
     
     @property
     def month_year(self) -> str:

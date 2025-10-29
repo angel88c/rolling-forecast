@@ -68,6 +68,14 @@ class ExcelParser:
                 'paid in advance', 'paid_in_advance', 'pia', 'calculated pia', 'calculated_pia',
                 'pago adelantado', 'pago_adelantado', 'anticipo', 'advance payment',
                 'advance_payment', 'prepago', 'prepayment'
+            ],
+            'Region': [
+                'region', 'región', 'area', 'country', 'pais', 'país', 'location', 'ubicación', 
+                'ubicacion', 'zona', 'zone', 'territorio', 'territory'
+            ],
+            'Gross Margin': [
+                'gross margin', 'gross_margin', 'margen bruto', 'margen_bruto', 
+                'margen', 'margin', 'gm'
             ]
         }
     

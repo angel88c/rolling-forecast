@@ -102,6 +102,9 @@ class DataProcessor:
         # Limpiar valores numéricos
         df_clean = self._clean_numeric_values(df_clean)
         
+        # Detectar región y clasificar empresa
+        df_clean = self._detect_region_and_classify_company(df_clean)
+        
         # Completar datos faltantes usando base de datos histórica
         df_clean = self._complete_missing_data(df_clean)
         
@@ -286,7 +289,80 @@ class DataProcessor:
         df['Paid in Advance'] = pd.to_numeric(df['Paid in Advance'], errors='coerce')
         df['Paid in Advance'] = df['Paid in Advance'].fillna(0)
         
+        # Limpiar Gross Margin (si existe)
+        if 'Gross Margin' in df.columns:
+            df['Gross Margin'] = pd.to_numeric(df['Gross Margin'], errors='coerce')
+            df['Gross Margin'] = df['Gross Margin'].fillna(0)
+        else:
+            df['Gross Margin'] = 0
+        
         return df
+    
+    def _detect_region_and_classify_company(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Detecta la región y clasifica la empresa (LLC o SAPI).
+        
+        La región se obtiene ÚNICAMENTE de la columna 'Region' en el archivo Excel.
+        
+        Clasificación de empresa:
+        - LLC: Regiones que comienzan con US
+        - SAPI: Regiones que comienzan con MX
+        - Sin Clasificar: Otras regiones o sin región definida
+        
+        Args:
+            df: DataFrame con datos
+            
+        Returns:
+            pd.DataFrame: DataFrame con región y empresa clasificada
+        """
+        logger.debug("Detectando región y clasificando empresa desde columna Region")
+        
+        df = df.copy()
+        
+        # Detectar región SOLO desde columna Region
+        if 'Region' in df.columns:
+            # Usar columna Region del Excel
+            df['region_detected'] = df['Region'].fillna('').astype(str).str.strip()
+            logger.info("Región detectada desde columna 'Region' del archivo Excel")
+        else:
+            # Si no existe la columna, marcar como vacío
+            df['region_detected'] = ''
+            logger.warning("No se encontró columna 'Region' en el archivo Excel. Todos los registros se clasificarán como 'Sin Clasificar'")
+        
+        # Clasificar empresa basándose en región
+        df['Company'] = df['region_detected'].apply(self._classify_company)
+        
+        # Contar clasificaciones
+        company_counts = df['Company'].value_counts().to_dict()
+        logger.info(f"Clasificación de empresas: {company_counts}")
+        
+        return df
+    
+    def _classify_company(self, region: str) -> str:
+        """
+        Clasifica la empresa basándose en la región.
+        
+        Args:
+            region: Código de región
+            
+        Returns:
+            str: Clasificación de empresa (LLC, SAPI, o Sin Clasificar)
+        """
+        if not region or region == '':
+            return 'Sin Clasificar'
+        
+        region_upper = str(region).upper().strip()
+        
+        # Regiones que comienzan con US son LLC
+        if region_upper.startswith('US'):
+            return 'LLC'
+        
+        # Regiones que comienzan con MX son SAPI
+        if region_upper.startswith('MX'):
+            return 'SAPI'
+        
+        # Otras regiones
+        return 'Sin Clasificar'
     
     def _complete_missing_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -418,7 +494,10 @@ class DataProcessor:
                     lead_time=float(row['Lead Time']),
                     probability=float(row['probability_assigned']),
                     paid_in_advance=float(row['Paid in Advance']) if row['Paid in Advance'] > 0 else None,
-                    payment_terms=str(row['Payment Terms']) if pd.notna(row['Payment Terms']) else None
+                    payment_terms=str(row['Payment Terms']) if pd.notna(row['Payment Terms']) else None,
+                    region=str(row['region_detected']) if pd.notna(row.get('region_detected')) else None,
+                    company=str(row['Company']) if pd.notna(row.get('Company')) else None,
+                    gross_margin=float(row['Gross Margin']) if pd.notna(row.get('Gross Margin')) and row['Gross Margin'] > 0 else None
                 )
                 
                 opportunities.append(opportunity)
@@ -453,6 +532,7 @@ class DataProcessor:
             'excluded_100_percent': prob_100_excluded,
             'success_rate': len(clean_df) / len(original_df) if len(original_df) > 0 else 0,
             'bu_distribution': clean_df['BU'].value_counts().to_dict(),
+            'company_distribution': clean_df['Company'].value_counts().to_dict() if 'Company' in clean_df.columns else {},
             'probability_distribution': clean_df['probability_assigned'].value_counts().to_dict(),
             'lead_time_adjustments': (clean_df['lead_time_original'] < self.min_lead_time).sum(),
             'date_range': {

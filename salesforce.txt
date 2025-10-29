@@ -1,0 +1,66 @@
+/*No mover*/
+
+IF( DATEVALUE( CloseDate ) >= DATEVALUE("2025-07-01"),  IF( Gross_M__c >= 0.4, 
+
+IF(ISPICKVAL( BU__c ,"REP"), Gross_Margin__c * 0.05 * IF(ISPICKVAL(Split__c, "25"), 0.75,  IF(ISPICKVAL(Split__c, "50"), 0.50,  IF(ISPICKVAL(Split__c, "75"), 0.25, 1) ) )  ,
+IF(Country__c = "MEX",  
+IF(ISPICKVAL(Sales_Quota_Result__c,">= Challenge"), 1.03,  IF(ISPICKVAL(Sales_Quota_Result__c, ">= Baseline"), 1, 0.95) ) * 
+IF(ISPICKVAL(Gross_M_Quota_Result__c,">= Challenge"), 1.07,  IF(ISPICKVAL(Gross_M_Quota_Result__c, ">= Baseline"), 1, 0.90) )*                
+IF(ISPICKVAL( Business__c ,"Regular") , 1, 1.01) *
+IF(ISPICKVAL( BUs_Quota_Result__c ,"3/3"), 1.03, IF(ISPICKVAL( BUs_Quota_Result__c ,"2/3"), 1.02,  IF(ISPICKVAL( BUs_Quota_Result__c ,"1/3"), 1.01, 1) ) ) * Gross_Margin__c  * IF( ISPICKVAL(Split__c, "25"), 0.0275 * 0.75, IF( ISPICKVAL(Split__c, "50"), 0.0275 * 0.50, IF( ISPICKVAL(Split__c, "75"), 0.0275 * 0.25, 0.0275)))
+,
+IF(ISPICKVAL(Sales_Quota_Result__c,">= Challenge"), 1.05,  IF(ISPICKVAL(Sales_Quota_Result__c, ">= Baseline"), 1, 0.90) ) * 
+IF(ISPICKVAL(Gross_M_Quota_Result__c,">= Challenge"), 1.08,  IF(ISPICKVAL(Gross_M_Quota_Result__c, ">= Baseline"), 1, 0.89) )*                
+IF(ISPICKVAL( Business__c ,"Regular") , 1, 1.03) *
+IF(ISPICKVAL( BUs_Quota_Result__c ,"3/3"), 1.03, IF(ISPICKVAL( BUs_Quota_Result__c ,"2/3"), 1.02,  IF(ISPICKVAL( BUs_Quota_Result__c ,"1/3"), 1.01, 1) ) ) * Gross_Margin__c  * IF( ISPICKVAL(Split__c, "25"), 0.0350 * 0.75, IF( ISPICKVAL(Split__c, "50"), 0.0350 * 0.50, IF( ISPICKVAL(Split__c, "75"), 0.0350 * 0.25, 0.0350)))
+)),
+IF(ISPICKVAL( BU__c ,"REP"), Gross_Margin__c * 0.05 * IF(ISPICKVAL(Split__c, "25"), 0.75,  IF(ISPICKVAL(Split__c, "50"), 0.50,  IF(ISPICKVAL(Split__c, "75"), 0.25, 1) ) )  ,
+IF(Country__c = "MEX",  
+IF(ISPICKVAL(Sales_Quota_Result__c,">= Challenge"), 1.03,  IF(ISPICKVAL(Sales_Quota_Result__c, ">= Baseline"), 1, 0.95) ) * 
+IF(ISPICKVAL(Gross_M_Quota_Result__c,">= Challenge"), 1.07,  IF(ISPICKVAL(Gross_M_Quota_Result__c, ">= Baseline"), 1, 0.90) )*                
+IF(ISPICKVAL( Business__c ,"Regular") , 1, 1.01) *
+IF(ISPICKVAL( BUs_Quota_Result__c ,"3/3"), 1.03, IF(ISPICKVAL( BUs_Quota_Result__c ,"2/3"), 1.02,  IF(ISPICKVAL( BUs_Quota_Result__c ,"1/3"), 1.01, 1) ) ) * Gross_Margin__c  * IF( ISPICKVAL(Split__c, "25"), 0.0175 * 0.75, IF( ISPICKVAL(Split__c, "50"), 0.0175 * 0.50, IF( ISPICKVAL(Split__c, "75"), 0.0175 * 0.25, 0.0175)))
+,
+IF(ISPICKVAL(Sales_Quota_Result__c,">= Challenge"), 1.05,  IF(ISPICKVAL(Sales_Quota_Result__c, ">= Baseline"), 1, 0.90) ) * 
+IF(ISPICKVAL(Gross_M_Quota_Result__c,">= Challenge"), 1.08,  IF(ISPICKVAL(Gross_M_Quota_Result__c, ">= Baseline"), 1, 0.89) )*                
+IF(ISPICKVAL( Business__c ,"Regular") , 1, 1.03) *
+IF(ISPICKVAL( BUs_Quota_Result__c ,"3/3"), 1.03, IF(ISPICKVAL( BUs_Quota_Result__c ,"2/3"), 1.02,  IF(ISPICKVAL( BUs_Quota_Result__c ,"1/3"), 1.01, 1) ) ) * Gross_Margin__c  * IF( ISPICKVAL(Split__c, "25"), 0.0250 * 0.75, IF( ISPICKVAL(Split__c, "50"), 0.0250 * 0.50, IF( ISPICKVAL(Split__c, "75"), 0.0250 * 0.25, 0.0250)))
+))), 
+IF(ISPICKVAL( BU__c ,"REP"), Gross_Margin__c * 0.05 * IF(ISPICKVAL(Split__c, "25"), 0.75,  IF(ISPICKVAL(Split__c, "50"), 0.50,  IF(ISPICKVAL(Split__c, "75"), 0.25, 1) ) )  ,
+IF(Country__c = "MEX",  
+IF(ISPICKVAL(Sales_Quota_Result__c,">= Challenge"), 1.03,  IF(ISPICKVAL(Sales_Quota_Result__c, ">= Baseline"), 1, 0.95) ) * 
+IF(ISPICKVAL(Gross_M_Quota_Result__c,">= Challenge"), 1.07,  IF(ISPICKVAL(Gross_M_Quota_Result__c, ">= Baseline"), 1, 0.90) )*                
+IF(ISPICKVAL( Business__c ,"Regular") , 1, 1.01) *
+IF(ISPICKVAL( BUs_Quota_Result__c ,"3/3"), 1.03, IF(ISPICKVAL( BUs_Quota_Result__c ,"2/3"), 1.02,  IF(ISPICKVAL( BUs_Quota_Result__c ,"1/3"), 1.01, 1) ) ) * Gross_Margin__c  * IF( ISPICKVAL(Split__c, "25"), 0.0175 * 0.75, IF( ISPICKVAL(Split__c, "50"), 0.0175 * 0.50, IF( ISPICKVAL(Split__c, "75"), 0.0175 * 0.25, 0.0175)))
+,
+IF(ISPICKVAL(Sales_Quota_Result__c,">= Challenge"), 1.05,  IF(ISPICKVAL(Sales_Quota_Result__c, ">= Baseline"), 1, 0.90) ) * 
+IF(ISPICKVAL(Gross_M_Quota_Result__c,">= Challenge"), 1.08,  IF(ISPICKVAL(Gross_M_Quota_Result__c, ">= Baseline"), 1, 0.89) )*                
+IF(ISPICKVAL( Business__c ,"Regular") , 1, 1.03) *
+IF(ISPICKVAL( BUs_Quota_Result__c ,"3/3"), 1.03, IF(ISPICKVAL( BUs_Quota_Result__c ,"2/3"), 1.02,  IF(ISPICKVAL( BUs_Quota_Result__c ,"1/3"), 1.01, 1) ) ) * Gross_Margin__c  * IF( ISPICKVAL(Split__c, "25"), 0.0250 * 0.75, IF( ISPICKVAL(Split__c, "50"), 0.0250 * 0.50, IF( ISPICKVAL(Split__c, "75"), 0.0250 * 0.25, 0.0250))))))
+
+
+
+
+
+
+
+
+
+
+
+if (fecha_cierre >= 01 Julio)
+{
+    If (Gross_M >= 40%)
+    {
+        Compensas (Formula orginal)+ 1%
+    }
+    else
+    {
+
+        No_compensas(formula original)
+    }
+}
+else
+{
+    No_compensas.
+}

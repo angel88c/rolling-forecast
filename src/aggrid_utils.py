@@ -115,8 +115,9 @@ class AGGridConfigurator:
             cellRenderer=cls.get_bu_cell_renderer()
         )
         
-        # Configurar columnas de meses (todas las que no sean Proyecto y BU)
-        month_columns = [col for col in df.columns if col not in ['Proyecto', 'BU']]
+        # Configurar columnas de meses (todas las que no sean Proyecto, BU, Empresa, etc)
+        non_numeric_columns = ['Proyecto', 'BU', 'Empresa', 'Company', 'Amount Total', 'Gross Margin', 'Costo de Venta']
+        month_columns = [col for col in df.columns if col not in non_numeric_columns]
         
         for col in month_columns:
             gb.configure_column(col,
@@ -125,6 +126,43 @@ class AGGridConfigurator:
                 cellStyle=cls.get_cell_style_currency(),
                 width=120,
                 aggFunc="sum"  # Suma automática en agrupaciones
+            )
+        
+        # Configurar columna Empresa como texto
+        if 'Empresa' in df.columns:
+            gb.configure_column('Empresa', 
+                type=["textColumn"],
+                width=120,
+                pinned="left"
+            )
+        
+        if 'Company' in df.columns:
+            gb.configure_column('Company', 
+                type=["textColumn"],
+                width=120,
+                pinned="left"
+            )
+        
+        # Configurar columnas de costo de venta con formato de moneda
+        if 'Amount Total' in df.columns:
+            gb.configure_column('Amount Total',
+                type=["numericColumn"],
+                valueFormatter=cls.get_currency_formatter(),
+                width=140
+            )
+        
+        if 'Gross Margin' in df.columns:
+            gb.configure_column('Gross Margin',
+                type=["numericColumn"],
+                valueFormatter=cls.get_currency_formatter(),
+                width=140
+            )
+        
+        if 'Costo de Venta' in df.columns:
+            gb.configure_column('Costo de Venta',
+                type=["numericColumn"],
+                valueFormatter=cls.get_currency_formatter(),
+                width=140
             )
         
         # Configuraciones avanzadas
