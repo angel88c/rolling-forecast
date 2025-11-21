@@ -52,6 +52,9 @@ class Opportunity:
         region: Código de región (US, MX, etc.)
         company: Clasificación de empresa (LLC, SAPI)
         gross_margin: Margen bruto (valor absoluto)
+        account_name: Nombre del cliente/cuenta (del Excel)
+        invoice_date: Fecha de facturación (para ICT, REP, Otros sin PIA)
+        sat_date: Fecha SAT (para ICT, REP, Otros con PIA)
     """
     
     name: str
@@ -65,6 +68,9 @@ class Opportunity:
     region: Optional[str] = None
     company: Optional[str] = None
     gross_margin: Optional[float] = None
+    account_name: Optional[str] = None
+    invoice_date: Optional[datetime] = None
+    sat_date: Optional[datetime] = None
     
     def __post_init__(self):
         """Validaciones post-inicialización."""

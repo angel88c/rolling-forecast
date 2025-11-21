@@ -29,3 +29,6 @@ streamlit-aggrid>=0.3.4
 
 # Utilidades adicionales
 typing-extensions>=4.7.0
+
+# IA y Chatbot
+openai>=1.0.0

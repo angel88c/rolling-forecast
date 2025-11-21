@@ -290,11 +290,18 @@ class ClientDatabase:
         """
         Extrae el nombre del cliente del nombre del proyecto.
         
+        NOTA IMPORTANTE: Este método se usa SOLO como fallback cuando no existe
+        la columna 'Account Name' en el Excel. La columna Account Name debe ser
+        la fuente primaria de información del cliente.
+        
+        Este método usa heurísticas que pueden ser inexactas y llevar a asignaciones
+        incorrectas cuando proyectos tienen nombres similares.
+        
         Args:
             project_name: Nombre completo del proyecto
             
         Returns:
-            str: Nombre del cliente extraído
+            str: Nombre del cliente extraído (puede ser inexacto)
         """
         if not project_name or pd.isna(project_name):
             return "Unknown Client"

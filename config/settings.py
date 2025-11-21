@@ -66,6 +66,7 @@ class ExcelConfig:
             'Payment Terms',
             'Probability (%)  ↑',
             'Paid in Advance'
+            # 'Account Name' - Opcional, se intentará leer pero no es obligatoria
         ]
 
 

@@ -36,12 +36,13 @@ class DataProcessor:
         self.client_db = ClientDatabase()
         self.excel_parser = ExcelParser()
     
-    def read_excel_file(self, file) -> Tuple[pd.DataFrame, Dict]:
+    def read_excel_file(self, file, sheet_name: str = 0) -> Tuple[pd.DataFrame, Dict]:
         """
         Lee el archivo Excel del funnel con detección automática de headers.
         
         Args:
             file: Archivo Excel subido
+            sheet_name: Nombre o índice de la hoja a leer (default: 0)
             
         Returns:
             Tuple[pd.DataFrame, Dict]: (DataFrame con datos, reporte de parsing)
@@ -50,10 +51,10 @@ class DataProcessor:
             Exception: Si hay error al leer el archivo
         """
         try:
-            logger.info("Iniciando lectura del archivo Excel con detección automática")
+            logger.info(f"Iniciando lectura del archivo Excel (hoja: '{sheet_name}') con detección automática")
             
             # Detectar automáticamente la fila de headers
-            header_row, df_raw = self.excel_parser.detect_header_row(file)
+            header_row, df_raw = self.excel_parser.detect_header_row(file, sheet_name=sheet_name)
             
             # Guardar columnas originales para el reporte
             original_columns = df_raw.columns.tolist()
@@ -67,6 +68,7 @@ class DataProcessor:
             # Generar reporte de parsing
             parsing_report = self.excel_parser.get_parsing_report(original_columns, df_clean)
             parsing_report['detected_header_row'] = header_row
+            parsing_report['sheet_name'] = sheet_name
             
             logger.info(f"Archivo leído exitosamente: {len(df_clean)} registros, header en fila {header_row}")
             
@@ -89,6 +91,9 @@ class DataProcessor:
         logger.info("Iniciando limpieza de datos")
         
         df_clean = df.copy()
+        
+        # Limpiar columna BU de símbolos especiales
+        df_clean = self._clean_bu_column(df_clean)
         
         # Asignar probabilidades usando lógica de agrupador
         df_clean = self._assign_probabilities(df_clean)
@@ -117,33 +122,142 @@ class DataProcessor:
         logger.info(f"Datos limpiados: {len(df_clean)} registros válidos")
         return df_clean
     
-    def _assign_probabilities(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _clean_bu_column(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Asigna probabilidades usando la lógica de agrupador.
-        
-        La columna de probabilidad funciona como un agrupador donde el valor
-        se aplica a todos los proyectos siguientes hasta que aparece un nuevo valor.
+        Limpia la columna BU removiendo símbolos especiales como flechas (↑).
         
         Args:
             df: DataFrame con datos
             
         Returns:
-            pd.DataFrame: DataFrame con probabilidades asignadas
+            pd.DataFrame: DataFrame con columna BU limpia
         """
-        logger.debug("Asignando probabilidades con lógica de agrupador")
+        if 'BU' not in df.columns:
+            return df
         
         df = df.copy()
-        prob_col = 'Probability (%)  ↑'
         
-        # Convertir a numérico, manteniendo NaN
-        df[prob_col] = pd.to_numeric(df[prob_col], errors='coerce')
+        # Remover símbolos especiales comunes: flechas, espacios extra, etc.
+        df['BU'] = df['BU'].astype(str).str.replace('↑', '', regex=False)
+        df['BU'] = df['BU'].astype(str).str.replace('↓', '', regex=False)
+        df['BU'] = df['BU'].astype(str).str.replace('→', '', regex=False)
+        df['BU'] = df['BU'].astype(str).str.replace('←', '', regex=False)
         
-        # Forward fill: propagar el último valor válido hacia adelante
-        df['probability_assigned'] = df[prob_col].ffill()
+        # Remover espacios al inicio y final
+        df['BU'] = df['BU'].str.strip()
         
-        # Si los primeros registros no tienen probabilidad, usar valor por defecto
-        if pd.isna(df['probability_assigned'].iloc[0]):
-            df['probability_assigned'] = df['probability_assigned'].fillna(0.25)
+        # Remover espacios múltiples
+        df['BU'] = df['BU'].str.replace(r'\s+', ' ', regex=True)
+        
+        logger.debug("Columna BU limpiada de símbolos especiales")
+        return df
+    
+    def _assign_probabilities(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Normaliza columnas de probabilidad y BU ya procesadas por extract_projects_from_pipeline.
+        
+        El método extract_projects_from_pipeline ya aplicó forward fill a las columnas
+        Probability y BU, por lo que aquí solo normalizamos los nombres y creamos 
+        la columna probability_assigned.
+        
+        Args:
+            df: DataFrame con datos ya procesados
+            
+        Returns:
+            pd.DataFrame: DataFrame con columnas normalizadas
+        """
+        logger.debug("Normalizando columnas de probabilidad y BU (ya procesadas por extract_projects_from_pipeline)")
+        
+        df = df.copy()
+        
+        # Buscar columna de probabilidad (puede tener diferentes nombres)
+        prob_col = None
+        for col in df.columns:
+            if 'probability' in str(col).lower() or 'prob' in str(col).lower():
+                prob_col = col
+                break
+        
+        if prob_col is None:
+            logger.warning("No se encontró columna de Probability")
+            df['probability_assigned'] = 0  # Valor por defecto
+        else:
+            logger.info(f"Columna de probabilidad encontrada: '{prob_col}'")
+            logger.info(f"Primeras 20 filas de {prob_col} ANTES de conversión:")
+            logger.info(f"\n{df[prob_col].head(20)}")
+            
+            # Crear columna probability_assigned desde la columna de probabilidad
+            df['probability_assigned'] = pd.to_numeric(df[prob_col], errors='coerce')
+            
+            logger.info(f"Primeras 20 filas de probability_assigned DESPUÉS de conversión (antes de ffill):")
+            logger.info(f"\n{df['probability_assigned'].head(20)}")
+            
+            # Contar NaN antes del forward fill
+            nan_before = df['probability_assigned'].isna().sum()
+            
+            # APLICAR FORWARD FILL: Propagar la última probabilidad válida hacia abajo
+            # Ejemplo: 0.5, NaN, NaN → 0.5, 0.5, 0.5
+            df['probability_assigned'] = df['probability_assigned'].ffill()
+            
+            # Contar NaN después del forward fill
+            nan_after = df['probability_assigned'].isna().sum()
+            
+            logger.info(f"\n{'='*80}")
+            logger.info(f"FORWARD FILL DE PROBABILIDADES:")
+            logger.info(f"  - Valores NaN ANTES del ffill: {nan_before}")
+            logger.info(f"  - Valores NaN DESPUÉS del ffill: {nan_after}")
+            logger.info(f"  - Registros completados con ffill: {nan_before - nan_after}")
+            logger.info(f"{'='*80}")
+            
+            logger.info(f"\nPrimeras 20 filas de probability_assigned DESPUÉS de forward fill:")
+            logger.info(f"\n{df['probability_assigned'].head(20)}")
+            
+            # Si aún quedan NaN después del forward fill (solo las primeras filas sin valor previo)
+            if nan_after > 0:
+                logger.warning(f"⚠️ {nan_after} registros sin probabilidad después del forward fill (filas iniciales sin valor previo)")
+                logger.warning(f"Estos registros serán EXCLUIDOS en el filtrado posterior")
+                # NO asignar valor por defecto - estos registros deben ser excluidos
+        
+        # Verificar y aplicar forward fill a columna BU
+        bu_col = 'BU'
+        if bu_col in df.columns:
+            logger.info(f"\nPrimeras 20 filas de BU ANTES de forward fill:")
+            logger.info(f"\n{df[bu_col].head(20)}")
+            
+            # Contar vacíos antes del forward fill
+            mask_no_bu_before = df[bu_col].isna() | (df[bu_col].astype(str).str.strip() == '')
+            no_bu_before = mask_no_bu_before.sum()
+            
+            # APLICAR FORWARD FILL: Propagar la última BU válida hacia abajo
+            df[bu_col] = df[bu_col].ffill()
+            
+            # Contar vacíos después del forward fill
+            mask_no_bu_after = df[bu_col].isna() | (df[bu_col].astype(str).str.strip() == '')
+            no_bu_after = mask_no_bu_after.sum()
+            
+            logger.info(f"\n{'='*80}")
+            logger.info(f"FORWARD FILL DE BU:")
+            logger.info(f"  - Registros sin BU ANTES del ffill: {no_bu_before}")
+            logger.info(f"  - Registros sin BU DESPUÉS del ffill: {no_bu_after}")
+            logger.info(f"  - Registros completados con ffill: {no_bu_before - no_bu_after}")
+            logger.info(f"{'='*80}")
+            
+            logger.info(f"\nPrimeras 20 filas de BU DESPUÉS de forward fill:")
+            logger.info(f"\n{df[bu_col].head(20)}")
+            
+            if no_bu_after > 0:
+                logger.warning(f"⚠️ {no_bu_after} registros sin BU después del forward fill (filas iniciales sin valor previo)")
+                logger.warning(f"Estos registros serán EXCLUIDOS en el filtrado posterior")
+        else:
+            logger.warning("No se encontró columna BU")
+        
+        # Estadísticas
+        prob_counts = df['probability_assigned'].value_counts().to_dict()
+        bu_counts = df[bu_col].value_counts().to_dict() if bu_col in df.columns else {}
+        
+        logger.info(f"Columnas normalizadas:")
+        logger.info(f"  - Probabilidades: {prob_counts}")
+        logger.info(f"  - BUs: {bu_counts}")
+        logger.info(f"  - Total registros: {len(df)}")
         
         return df
     
@@ -196,6 +310,20 @@ class DataProcessor:
         # Ajustar fechas pasadas al último día del mes actual
         df['close_date_parsed'] = df['close_date_parsed'].apply(self._adjust_current_month_dates)
         
+        # Convertir Invoice Date si existe (para ICT, REP, Otros sin PIA)
+        if 'Invoice Date' in df.columns:
+            df['invoice_date_parsed'] = df['Invoice Date'].apply(self._parse_date)
+            df['invoice_date_parsed'] = df['invoice_date_parsed'].apply(self._adjust_current_month_dates)
+        else:
+            df['invoice_date_parsed'] = None
+        
+        # Convertir SAT Date si existe (para ICT, REP, Otros con PIA)
+        if 'SAT Date' in df.columns:
+            df['sat_date_parsed'] = df['SAT Date'].apply(self._parse_date)
+            df['sat_date_parsed'] = df['sat_date_parsed'].apply(self._adjust_current_month_dates)
+        else:
+            df['sat_date_parsed'] = None
+        
         return df
     
     def _parse_date(self, date_value) -> Optional[datetime]:
@@ -211,10 +339,19 @@ class DataProcessor:
         if pd.isna(date_value) or date_value == '':
             return None
         
+        # Si ya es un objeto datetime, retornarlo directamente
+        if isinstance(date_value, datetime):
+            return date_value
+        
+        # Si es un Timestamp de pandas, convertir a datetime
+        if isinstance(date_value, pd.Timestamp):
+            return date_value.to_pydatetime()
+        
+        # Si no, intentar parsear como string
         date_str = str(date_value)
         
         # Intentar diferentes formatos
-        date_formats = ['%d/%m/%Y', '%Y-%m-%d', '%m/%d/%Y']
+        date_formats = ['%d/%m/%Y', '%Y-%m-%d', '%m/%d/%Y', '%Y-%m-%d %H:%M:%S']
         
         for date_format in date_formats:
             try:
@@ -222,12 +359,13 @@ class DataProcessor:
             except ValueError:
                 continue
         
-        logger.warning(f"No se pudo parsear la fecha: {date_value}")
+        logger.warning(f"No se pudo parsear la fecha: {date_value} (tipo: {type(date_value)})")
         return None
     
     def _adjust_current_month_dates(self, date_value: Optional[datetime]) -> Optional[datetime]:
         """
-        Ajusta fechas pasadas (anteriores a hoy) al último día del mes actual.
+        Ajusta fechas de meses pasados al último día del mes actual.
+        NO ajusta fechas dentro del mes actual, solo meses anteriores.
         
         Args:
             date_value: Fecha a ajustar
@@ -246,9 +384,12 @@ class DataProcessor:
         try:
             current_date = datetime.now()
             
-            # Si la fecha es anterior a la fecha actual (incluyendo mes y año)
-            if date_value.date() < current_date.date():
-                
+            # Solo ajustar si la fecha es de un MES ANTERIOR (no solo día anterior)
+            # Comparar año y mes, no día
+            is_past_month = (date_value.year < current_date.year) or \
+                           (date_value.year == current_date.year and date_value.month < current_date.month)
+            
+            if is_past_month:
                 # Calcular último día del mes actual
                 import calendar
                 last_day = calendar.monthrange(current_date.year, current_date.month)[1]
@@ -256,7 +397,7 @@ class DataProcessor:
                 # Ajustar al último día del mes actual
                 adjusted_date = current_date.replace(day=last_day)
                 
-                logger.info(f"Fecha pasada ajustada: {date_value.strftime('%d/%m/%Y')} -> {adjusted_date.strftime('%d/%m/%Y')}")
+                logger.info(f"Fecha de mes pasado ajustada: {date_value.strftime('%d/%m/%Y')} -> {adjusted_date.strftime('%d/%m/%Y')}")
                 return adjusted_date
             
             return date_value
@@ -443,14 +584,43 @@ class DataProcessor:
         """
         logger.debug("Filtrando registros válidos")
         
+        initial_count = len(df)
+        
+        # Nota: Las filas de resumen (Subtotal, Sum, Avg, Count) ya fueron eliminadas en excel_parser.py
+        logger.debug("Las filas de resumen ya fueron eliminadas en el paso de parsing del Excel")
+        
+        # Contar registros que no cumplen cada condición
+        logger.info("Validando condiciones:")
+        logger.info(f"  - Lead Time: {df['Lead Time'].notna().sum()} de {len(df)} tienen valor")
+        logger.info(f"  - Payment Terms: {df['Payment Terms'].notna().sum()} de {len(df)} tienen valor")
+        logger.info(f"  - Opportunity Name: {df['Opportunity Name'].notna().sum()} de {len(df)} tienen valor")
+        logger.info(f"  - Amount: {(df['Amount'].notna() & (df['Amount'] > 0)).sum()} de {len(df)} tienen valor > 0")
+        
+        # Validación más estricta de BU
+        bu_valid = df['BU'].notna() & (df['BU'].astype(str).str.strip() != '') & (df['BU'].astype(str).str.upper() != 'NAN')
+        logger.info(f"  - BU: {bu_valid.sum()} de {len(df)} tienen BU válido")
+        if bu_valid.sum() < len(df):
+            invalid_bu_count = len(df) - bu_valid.sum()
+            logger.warning(f"    ⚠️ {invalid_bu_count} registros tienen BU inválido (NaN, vacío o 'nan')")
+        
+        logger.info(f"  - Close Date: {df['close_date_parsed'].notna().sum()} de {len(df)} tienen fecha válida")
+        logger.info(f"  - Probability: {df['probability_assigned'].notna().sum()} de {len(df)} tienen probabilidad asignada")
+        
+        prob_100_count = (df['probability_assigned'] == 1.0).sum()
+        if prob_100_count > 0:
+            logger.info(f"  - Probabilidad < 100%: {prob_100_count} registros tienen probabilidad 100% (se excluirán)")
+        
         # Condiciones para registros válidos (ahora incluye datos completados)
+        # Validación más estricta de BU: no puede ser NaN, vacío o 'nan'
+        bu_valid_condition = df['BU'].notna() & (df['BU'].astype(str).str.strip() != '') & (df['BU'].astype(str).str.upper() != 'NAN')
+        
         conditions = [
             df['Lead Time'].notna(),
-            df['Payment Terms'].notna(),
+            #df['Payment Terms'].notna(),
             df['Opportunity Name'].notna(),
             df['Amount'].notna(),
             df['Amount'] > 0,
-            df['BU'].notna(),
+            bu_valid_condition,  # Validación estricta de BU
             df['close_date_parsed'].notna(),
             df['probability_assigned'].notna(),
             df['probability_assigned'] < 1.0  # Excluir probabilidades del 100%
@@ -460,12 +630,15 @@ class DataProcessor:
         valid_mask = pd.concat(conditions, axis=1).all(axis=1)
         df_filtered = df[valid_mask].copy()
         
-        # Contar exclusiones por probabilidad 100%
-        prob_100_count = (df['probability_assigned'] == 1.0).sum()
+        logger.info(f"\nResumen de filtrado:")
+        logger.info(f"  - Registros iniciales: {initial_count}")
+        logger.info(f"  - Registros válidos finales: {len(df_filtered)}")
+        logger.info(f"  - Registros descartados: {initial_count - len(df_filtered)}")
         
-        logger.info(f"Registros filtrados: {len(df_filtered)} válidos de {len(df)} totales")
-        if prob_100_count > 0:
-            logger.info(f"Se excluyeron {prob_100_count} oportunidades con probabilidad del 100%")
+        # Mostrar distribución por BU de los registros válidos
+        if 'BU' in df_filtered.columns and len(df_filtered) > 0:
+            bu_counts = df_filtered['BU'].value_counts().to_dict()
+            logger.info(f"  - Distribución por BU: {bu_counts}")
         
         return df_filtered
     
@@ -482,13 +655,21 @@ class DataProcessor:
         logger.info("Convirtiendo datos a objetos Opportunity")
         
         opportunities = []
+        errors = 0
         
-        for _, row in df.iterrows():
+        for idx, row in df.iterrows():
             try:
+                # Validar que BU no sea NaN antes de crear el objeto
+                bu_value = row['BU']
+                if pd.isna(bu_value) or str(bu_value).strip() == '' or str(bu_value).upper() == 'NAN':
+                    logger.error(f"Registro {idx} '{row.get('Opportunity Name', 'N/A')}' tiene BU inválido: '{bu_value}' - Se salta")
+                    errors += 1
+                    continue
+                
                 # Crear objeto Opportunity
                 opportunity = Opportunity(
                     name=str(row['Opportunity Name']),
-                    bu=BusinessUnit(row['BU']),
+                    bu=BusinessUnit(str(bu_value).strip()),
                     amount=float(row['Amount']),
                     close_date=row['close_date_parsed'],
                     lead_time=float(row['Lead Time']),
@@ -497,16 +678,20 @@ class DataProcessor:
                     payment_terms=str(row['Payment Terms']) if pd.notna(row['Payment Terms']) else None,
                     region=str(row['region_detected']) if pd.notna(row.get('region_detected')) else None,
                     company=str(row['Company']) if pd.notna(row.get('Company')) else None,
-                    gross_margin=float(row['Gross Margin']) if pd.notna(row.get('Gross Margin')) and row['Gross Margin'] > 0 else None
+                    gross_margin=float(row['Gross Margin']) if pd.notna(row.get('Gross Margin')) and row['Gross Margin'] > 0 else None,
+                    account_name=str(row['Account Name']).strip() if 'Account Name' in df.columns and pd.notna(row.get('Account Name')) else None,
+                    invoice_date=row.get('invoice_date_parsed') if pd.notna(row.get('invoice_date_parsed')) else None,
+                    sat_date=row.get('sat_date_parsed') if pd.notna(row.get('sat_date_parsed')) else None
                 )
                 
                 opportunities.append(opportunity)
                 
             except Exception as e:
-                logger.warning(f"Error al crear oportunidad para '{row.get('Opportunity Name', 'N/A')}': {str(e)}")
+                logger.error(f"Error al crear oportunidad para '{row.get('Opportunity Name', 'N/A')}': {str(e)} - BU='{row.get('BU', 'N/A')}'")
+                errors += 1
                 continue
         
-        logger.info(f"Se crearon {len(opportunities)} objetos Opportunity")
+        logger.info(f"Se crearon {len(opportunities)} objetos Opportunity ({errors} errores)")
         return opportunities
     
     def get_processing_summary(self, original_df: pd.DataFrame, clean_df: pd.DataFrame, parsing_report: Dict = None) -> dict:

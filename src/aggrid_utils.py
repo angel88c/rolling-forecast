@@ -116,7 +116,7 @@ class AGGridConfigurator:
         )
         
         # Configurar columnas de meses (todas las que no sean Proyecto, BU, Empresa, etc)
-        non_numeric_columns = ['Proyecto', 'BU', 'Empresa', 'Company', 'Amount Total', 'Gross Margin', 'Costo de Venta']
+        non_numeric_columns = ['Proyecto', 'BU', 'Empresa', 'Company', 'Location', 'Status', 'Customer', '% Facturación', 'Amount Total', 'Gross Margin', 'Costo de Venta']
         month_columns = [col for col in df.columns if col not in non_numeric_columns]
         
         for col in month_columns:
@@ -141,6 +141,32 @@ class AGGridConfigurator:
                 type=["textColumn"],
                 width=120,
                 pinned="left"
+            )
+        
+        # Configurar columnas de KPIs como texto
+        if 'Location' in df.columns:
+            gb.configure_column('Location', 
+                type=["textColumn"],
+                width=100,
+                pinned="left"
+            )
+        
+        if 'Status' in df.columns:
+            gb.configure_column('Status', 
+                type=["textColumn"],
+                width=100
+            )
+        
+        if 'Customer' in df.columns:
+            gb.configure_column('Customer', 
+                type=["textColumn"],
+                width=200
+            )
+        
+        if '% Facturación' in df.columns:
+            gb.configure_column('% Facturación', 
+                type=["textColumn"],
+                width=120
             )
         
         # Configurar columnas de costo de venta con formato de moneda

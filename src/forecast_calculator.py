@@ -61,53 +61,71 @@ class ForecastCalculator:
         Calcula los eventos de facturación para una oportunidad específica.
         
         Args:
-            opportunity: Oportunidad a procesar
+            opportunity: Oportunidad a calcular
             
         Returns:
             List[BillingEvent]: Eventos de facturación para la oportunidad
         """
-        if opportunity.bu == BusinessUnit.ICT:
+        # ICT y REP tienen facturación simplificada (1 o 2 eventos)
+        if opportunity.bu in [BusinessUnit.ICT, BusinessUnit.REP]:
             return self._calculate_ict_billing(opportunity)
         else:
             return self._calculate_multi_stage_billing(opportunity)
     
     def _calculate_ict_billing(self, opportunity: Opportunity) -> List[BillingEvent]:
         """
-        Calcula facturación para BU ICT (1 o 2 cobros).
+        Calcula facturación simplificada para BU ICT y REP.
+        
+        Casos:
+        - Sin PIA: 1 evento al 100% en Invoice Date (si existe) o close_date + lead_time (fallback)
+        - Con PIA < 100%: 2 eventos (PIA en close_date + restante en SAT Date si existe o close_date + lead_time)
+        - Con PIA = 100%: 1 evento al 100% en close_date
         
         Args:
-            opportunity: Oportunidad ICT
+            opportunity: Oportunidad ICT o REP
             
         Returns:
-            List[BillingEvent]: Eventos de facturación ICT
+            List[BillingEvent]: Eventos de facturación (1 o 2 eventos)
         """
         events = []
         
         if opportunity.paid_in_advance and opportunity.paid_in_advance > 0:
-            # Caso con PIA: dos cobros
+            # Caso con PIA: uno o dos cobros
             
-            # Primer cobro (PIA)
+            # Primer cobro (INICIO/PIA) en close_date
             events.append(self._create_billing_event(
                 opportunity=opportunity,
-                stage=BillingStage.PIA,
+                stage=BillingStage.INICIO,
                 date=opportunity.close_date,
                 amount=opportunity.paid_in_advance
             ))
             
-            # Segundo cobro (Restante)
-            final_date = self._add_weeks(opportunity.close_date, opportunity.lead_time)
+            # Segundo cobro (Restante) - solo si hay monto restante
             final_amount = opportunity.amount - opportunity.paid_in_advance
             
-            events.append(self._create_billing_event(
-                opportunity=opportunity,
-                stage=BillingStage.FINAL,
-                date=final_date,
-                amount=final_amount
-            ))
+            if final_amount > 0:
+                # Usar SAT Date si existe, sino usar close_date + lead_time
+                if opportunity.sat_date:
+                    final_date = opportunity.sat_date
+                else:
+                    final_date = self._add_weeks(opportunity.close_date, opportunity.lead_time)
+                    logger.warning(f"Oportunidad '{opportunity.name}' con PIA pero sin SAT Date, usando close_date + lead_time")
+                
+                events.append(self._create_billing_event(
+                    opportunity=opportunity,
+                    stage=BillingStage.SAT,
+                    date=final_date,
+                    amount=final_amount
+                ))
             
         else:
             # Caso sin PIA: un solo cobro
-            final_date = self._add_weeks(opportunity.close_date, opportunity.lead_time)
+            # Usar Invoice Date si existe, sino usar close_date + lead_time
+            if opportunity.invoice_date:
+                final_date = opportunity.invoice_date
+            else:
+                final_date = self._add_weeks(opportunity.close_date, opportunity.lead_time)
+                logger.warning(f"Oportunidad '{opportunity.name}' sin PIA y sin Invoice Date, usando close_date + lead_time")
             
             events.append(self._create_billing_event(
                 opportunity=opportunity,
@@ -172,21 +190,35 @@ class ForecastCalculator:
         """
         events = []
         
-        # SAT siempre es 10% del total
-        sat_amount = opportunity.amount * self.rules.SAT_PERCENTAGE
+        # Monto restante después de descontar el PIA
+        remaining_amount = opportunity.amount - opportunity.paid_in_advance
         
-        # Monto restante a distribuir entre DR y FAT
-        remaining_amount = opportunity.amount - opportunity.paid_in_advance - sat_amount
-        dr_amount = remaining_amount * self.rules.DR_FAT_SPLIT_PERCENTAGE
-        fat_amount = remaining_amount * self.rules.DR_FAT_SPLIT_PERCENTAGE
+        # Crear evento INICIO (siempre con PIA)
+        events.append(
+            self._create_billing_event(opportunity, BillingStage.INICIO, inicio_date, opportunity.paid_in_advance)
+        )
         
-        # Crear eventos
-        events.extend([
-            self._create_billing_event(opportunity, BillingStage.INICIO, inicio_date, opportunity.paid_in_advance),
-            self._create_billing_event(opportunity, BillingStage.DR, dr_date, dr_amount),
-            self._create_billing_event(opportunity, BillingStage.FAT, fat_date, fat_amount),
-            self._create_billing_event(opportunity, BillingStage.SAT, sat_date, sat_amount)
-        ])
+        # Si hay monto restante, distribuirlo entre DR, FAT y SAT
+        if remaining_amount > 0:
+            # SAT es 10% del monto RESTANTE (no del total)
+            # Para mantener la proporción: DR:FAT:SAT = 30:30:10 del restante
+            # Normalizando: DR=30/70, FAT=30/70, SAT=10/70 del restante
+            sat_amount = remaining_amount * (self.rules.SAT_PERCENTAGE / 0.70)  # 10/70 ≈ 14.3% del restante
+            
+            # Monto a distribuir entre DR y FAT (60% del restante)
+            dr_fat_total = remaining_amount - sat_amount
+            dr_amount = dr_fat_total * self.rules.DR_FAT_SPLIT_PERCENTAGE
+            fat_amount = dr_fat_total * self.rules.DR_FAT_SPLIT_PERCENTAGE
+            
+            # Crear eventos solo si tienen monto > 0
+            if dr_amount > 0:
+                events.append(self._create_billing_event(opportunity, BillingStage.DR, dr_date, dr_amount))
+            
+            if fat_amount > 0:
+                events.append(self._create_billing_event(opportunity, BillingStage.FAT, fat_date, fat_amount))
+            
+            if sat_amount > 0:
+                events.append(self._create_billing_event(opportunity, BillingStage.SAT, sat_date, sat_amount))
         
         return events
     

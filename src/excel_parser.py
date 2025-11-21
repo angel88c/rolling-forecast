@@ -42,6 +42,10 @@ class ExcelParser:
                 'opportunity name', 'opportunity_name', 'project name', 'project_name',
                 'nombre oportunidad', 'nombre proyecto', 'oportunidad', 'proyecto'
             ],
+            'Account Name': [
+                'account name', 'account_name', 'client name', 'client_name',
+                'customer name', 'customer_name', 'nombre cliente', 'cliente', 'customer'
+            ],
             'BU': [
                 'bu', 'business unit', 'business_unit', 'unidad negocio', 'unidad_negocio'
             ],
@@ -107,18 +111,91 @@ class ExcelParser:
         normalized = re.sub(r'\s+', ' ', normalized)
         return normalized
     
-    def detect_header_row(self, file_path_or_buffer, max_rows: int = 20) -> Tuple[int, pd.DataFrame]:
+    def _clean_column_headers(self, columns) -> List[str]:
         """
-        Detecta automáticamente la fila de headers en el archivo Excel.
+        Limpia los nombres de las columnas removiendo símbolos especiales como flechas.
+        
+        Args:
+            columns: Lista o Index de nombres de columnas
+            
+        Returns:
+            List[str]: Lista de nombres de columnas limpios
+        """
+        cleaned_columns = []
+        
+        for col in columns:
+            col_str = str(col)
+            
+            # Remover símbolos especiales comunes: flechas
+            col_str = col_str.replace('↑', '')
+            col_str = col_str.replace('↓', '')
+            col_str = col_str.replace('→', '')
+            col_str = col_str.replace('←', '')
+            col_str = col_str.replace('⬆', '')
+            col_str = col_str.replace('⬇', '')
+            col_str = col_str.replace('➡', '')
+            col_str = col_str.replace('⬅', '')
+            
+            # Remover espacios al inicio y final
+            col_str = col_str.strip()
+            
+            # Remover múltiples espacios
+            col_str = re.sub(r'\s+', ' ', col_str)
+            
+            cleaned_columns.append(col_str)
+        
+        logger.debug(f"Columnas limpiadas de símbolos especiales")
+        return cleaned_columns
+    
+    def detect_header_row(self, file_path_or_buffer, max_rows: int = 20, sheet_name: str = 0) -> Tuple[int, pd.DataFrame]:
+        """
+        Usa el método extract_projects_from_pipeline para detectar headers y procesar datos.
+        
+        Args:
+            file_path_or_buffer: Ruta del archivo o buffer
+            max_rows: Número máximo de filas a analizar (no usado con el nuevo método)
+            sheet_name: Nombre o índice de la hoja a leer (default: 0)
+            
+        Returns:
+            Tuple[int, pd.DataFrame]: (fila_header_detectada, dataframe_procesado)
+        """
+        logger.info(f"Usando extract_projects_from_pipeline para procesar archivo Excel (hoja: '{sheet_name}')")
+        
+        try:
+            # Importar el método desde extract_projects
+            from .extract_projects import extract_projects_from_pipeline
+            
+            # Usar el método que ya implementa toda la lógica necesaria
+            df_processed = extract_projects_from_pipeline(file_path_or_buffer, sheet_name=sheet_name)
+            
+            # El método ya:
+            # 1. Detecta automáticamente los headers
+            # 2. Limpia símbolos de las columnas (flechas, etc.)
+            # 3. Elimina filas de totales (Subtotal, Sum, Avg, Count)
+            # 4. Aplica forward fill a Probability y BU
+            
+            logger.info(f"Archivo procesado exitosamente: {len(df_processed)} registros")
+            
+            # Retornar -1 como header_row porque el método ya procesó todo
+            return -1, df_processed
+            
+        except Exception as e:
+            logger.error(f"Error procesando con extract_projects_from_pipeline: {str(e)}")
+            
+            # Fallback al método original si falla
+            logger.warning("Usando método de detección original como fallback")
+            return self._detect_header_row_original(file_path_or_buffer, max_rows, sheet_name)
+    
+    def _detect_header_row_original(self, file_path_or_buffer, max_rows: int = 20, sheet_name: str = 0) -> Tuple[int, pd.DataFrame]:
+        """
+        Método original de detección de headers (como fallback).
         
         Args:
             file_path_or_buffer: Ruta del archivo o buffer
             max_rows: Número máximo de filas a analizar
-            
-        Returns:
-            Tuple[int, pd.DataFrame]: (fila_header, dataframe_completo)
+            sheet_name: Nombre o índice de la hoja a leer
         """
-        logger.info("Iniciando detección automática de fila de headers")
+        logger.info(f"Iniciando detección automática de fila de headers (método original, hoja: '{sheet_name}')")
         
         best_row = 0
         best_score = 0
@@ -128,7 +205,7 @@ class ExcelParser:
         for row_idx in range(max_rows):
             try:
                 # Leer archivo con esta fila como header
-                df = pd.read_excel(file_path_or_buffer, sheet_name=0, header=row_idx)
+                df = pd.read_excel(file_path_or_buffer, sheet_name=sheet_name, header=row_idx)
                 
                 # Calcular score de coincidencia
                 score = self._calculate_header_score(df.columns.tolist())
@@ -152,10 +229,17 @@ class ExcelParser:
         if best_df is None:
             # Fallback: usar fila 0
             logger.warning("No se pudo detectar header automáticamente, usando fila 0")
-            best_df = pd.read_excel(file_path_or_buffer, sheet_name=0, header=0)
+            best_df = pd.read_excel(file_path_or_buffer, sheet_name=sheet_name, header=0)
             best_row = 0
         
         logger.info(f"Header detectado en fila {best_row} con score {best_score:.2f}")
+        
+        # Filtrar filas: tomar solo HASTA encontrar "Total" en la columna de Probability
+        best_df = self._filter_rows_until_total(best_df)
+        
+        # Eliminar filas de resumen: Subtotal, Sum, Avg, Count
+        best_df = self._remove_summary_rows(best_df)
+        
         return best_row, best_df
     
     def _calculate_header_score(self, columns: List[str]) -> float:
@@ -210,11 +294,14 @@ class ExcelParser:
         logger.info("Normalizando nombres de columnas")
         
         df_normalized = df.copy()
+        
+        # Limpiar símbolos especiales de los nombres de columnas (headers)
+        df_normalized.columns = self._clean_column_headers(df_normalized.columns)
         column_mapping = {}
         
         # Para cada columna requerida, buscar coincidencia
         for required_col in EXCEL_CONFIG.REQUIRED_COLUMNS:
-            matching_col = self._find_matching_column(required_col, df.columns.tolist())
+            matching_col = self._find_matching_column(required_col, df_normalized.columns.tolist())
             
             if matching_col:
                 column_mapping[matching_col] = required_col
@@ -265,6 +352,81 @@ class ExcelParser:
                     return col
         
         return None
+    
+    def _filter_rows_until_total(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Filtra las filas del DataFrame, tomando datos HASTA encontrar "Total" 
+        en la columna de Probability.
+        
+        Args:
+            df: DataFrame con datos
+            
+        Returns:
+            pd.DataFrame: DataFrame filtrado con datos hasta "Total"
+        """
+        # Buscar columna de probabilidad
+        prob_col = None
+        for col in df.columns:
+            if 'probability' in str(col).lower() or 'prob' in str(col).lower():
+                prob_col = col
+                break
+        
+        if prob_col is None:
+            logger.warning("No se encontró columna de Probability, no se filtrará por 'Total'")
+            return df
+        
+        # Buscar la fila que contiene "Total" en la columna de probabilidad
+        total_row_idx = None
+        for idx in range(len(df)):
+            value = df.iloc[idx][prob_col]
+            if pd.notna(value) and str(value).strip().upper() == 'TOTAL':
+                total_row_idx = idx
+                logger.info(f"Encontrada fila 'Total' en posición {idx}, tomando datos HASTA esta fila (exclusive)")
+                break
+        
+        if total_row_idx is None:
+            logger.info("No se encontró 'Total' en columna Probability, se tomarán todos los datos")
+            return df
+        
+        # Tomar solo las filas HASTA "Total" (sin incluir la fila Total)
+        df_filtered = df.iloc[:total_row_idx].copy()
+        logger.info(f"Se filtraron {len(df) - len(df_filtered)} filas después de 'Total'")
+        
+        return df_filtered
+    
+    def _remove_summary_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Elimina filas que contienen palabras de resumen: Subtotal, Sum, Avg, Count.
+        
+        Args:
+            df: DataFrame con datos
+            
+        Returns:
+            pd.DataFrame: DataFrame sin filas de resumen
+        """
+        initial_count = len(df)
+        
+        # Palabras clave a buscar en cualquier columna
+        summary_keywords = ['SUBTOTAL', 'SUM', 'AVG', 'COUNT', 'AVERAGE', 'TOTAL']
+        
+        # Crear máscara para identificar filas de resumen
+        mask_to_keep = pd.Series([True] * len(df), index=df.index)
+        
+        # Revisar cada columna
+        for col in df.columns:
+            for keyword in summary_keywords:
+                # Buscar keyword en los valores de la columna
+                mask_keyword = df[col].astype(str).str.upper().str.contains(keyword, na=False)
+                mask_to_keep = mask_to_keep & ~mask_keyword
+        
+        # Filtrar el DataFrame
+        df_filtered = df[mask_to_keep].copy()
+        
+        removed_count = initial_count - len(df_filtered)
+        if removed_count > 0:
+            logger.info(f"Se eliminaron {removed_count} filas de resumen (Subtotal, Sum, Avg, Count, Total)")
+        
+        return df_filtered
     
     def _normalize_pia_values(self, df: pd.DataFrame) -> pd.DataFrame:
         """
