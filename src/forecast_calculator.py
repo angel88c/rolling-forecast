@@ -511,11 +511,13 @@ class ForecastCalculator:
                     'last_event_date': None
                 }
             
-            # Registrar evento
+            # Registrar evento con monto ajustado (incluye probabilidad y factor de castigo)
             project_data[unique_key]['events'].append({
                 'date': event.date,
                 'month': month_key,
-                'amount': event.amount
+                'amount': event.amount,
+                'amount_adjusted': event.amount_adjusted,
+                'probability': event.probability
             })
             
             # Actualizar último evento si es más reciente
@@ -537,23 +539,41 @@ class ForecastCalculator:
         total_cost_of_sale = 0
         
         for unique_key, project_info in project_data.items():
-            # Calcular amount total sumando todos los eventos del proyecto
-            amount_total = sum(event['amount'] for event in project_info['events'])
-            gross_margin = project_info['gross_margin']
-            cost_of_sale = amount_total - gross_margin if amount_total > 0 else 0
+            # Calcular amount total sumando los montos AJUSTADOS (con probabilidad y factor de castigo)
+            amount_total_adjusted = sum(event['amount_adjusted'] for event in project_info['events'])
             
-            # Acumular totales generales
-            total_amount += amount_total
-            total_gross_margin += gross_margin
+            # Calcular el factor de ajuste promedio para aplicar al gross_margin
+            # Obtenemos la probabilidad del primer evento (todas las oportunidades tienen la misma probabilidad)
+            if project_info['events']:
+                first_event = project_info['events'][0]
+                probability = first_event['probability']
+                
+                # Determinar el factor de castigo según la probabilidad
+                if abs(probability - 0.6) < 0.01:  # Probabilidad = 60%
+                    penalty_factor = self.rules.FINANCIAL_PENALTY_FACTOR_60_PERCENT
+                else:
+                    penalty_factor = self.rules.FINANCIAL_PENALTY_FACTOR_DEFAULT
+                
+                # Aplicar los mismos ajustes al gross_margin
+                gross_margin_adjusted = project_info['gross_margin'] * probability * penalty_factor
+            else:
+                gross_margin_adjusted = 0
+            
+            # Calcular costo de venta con valores ajustados
+            cost_of_sale = amount_total_adjusted - gross_margin_adjusted if amount_total_adjusted > 0 else 0
+            
+            # Acumular totales generales (valores ajustados)
+            total_amount += amount_total_adjusted
+            total_gross_margin += gross_margin_adjusted
             total_cost_of_sale += cost_of_sale
             
-            # Crear fila con proyecto y BU
+            # Crear fila con proyecto y BU (valores ajustados)
             row = {
                 'Proyecto': project_info['project_name'],
                 'BU': project_info['bu'],
                 'Empresa': project_info['company'],
-                'Amount Total': amount_total,
-                'Gross Margin': gross_margin,
+                'Amount Total': amount_total_adjusted,
+                'Gross Margin': gross_margin_adjusted,
                 'Costo de Venta': cost_of_sale
             }
             
