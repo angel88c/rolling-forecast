@@ -102,6 +102,64 @@ class ForecastApp:
         st.sidebar.markdown("**📊 Forecast & KPI Manager**")
         st.sidebar.caption("v3.0 - Gestión de Proyectos")
         
+        # Selector de tipo de facturación
+        st.sidebar.header("💼 Tipo de Facturación")
+        
+        # Inicializar billing_type en session_state si no existe
+        if 'billing_type' not in st.session_state:
+            st.session_state.billing_type = 'Contable'
+        
+        # Variable de control para detectar cambios (separada del valor actual)
+        if 'billing_type_control' not in st.session_state:
+            st.session_state.billing_type_control = st.session_state.billing_type
+        
+        # Callback que se ejecuta cuando cambia el selectbox
+        def on_billing_type_change():
+            new_value = st.session_state.billing_type_selector
+            old_value = st.session_state.billing_type_control
+            
+            # Solo limpiar si realmente cambió
+            if new_value != old_value:
+                # Limpiar resultados de forecast
+                if 'forecast_results' in st.session_state:
+                    del st.session_state.forecast_results
+                
+                # Limpiar resultados de KPIs
+                if 'kpi_results' in st.session_state:
+                    del st.session_state.kpi_results
+                
+                # Actualizar valor de control
+                st.session_state.billing_type_control = new_value
+                st.session_state.billing_type = new_value
+                
+                # Marcar que hubo cambio para mostrar mensajes
+                st.session_state.billing_type_just_changed = True
+        
+        # Selectbox con callback
+        st.sidebar.selectbox(
+            "Método de Facturación",
+            options=["Contable", "Financiera"],
+            index=0 if st.session_state.billing_type == "Contable" else 1,
+            help="Contable: Múltiples eventos (INICIO, DR, FAT, SAT). Financiera: Un solo evento al 100% en SAT.",
+            key="billing_type_selector",
+            on_change=on_billing_type_change
+        )
+        
+        # Mostrar mensajes si acabó de cambiar
+        if st.session_state.get('billing_type_just_changed', False):
+            st.sidebar.warning(f"⚠️ Tipo de facturación cambiado a: **{st.session_state.billing_type}**")
+            st.sidebar.info("📝 Las tablas se han limpiado. Por favor, vuelve a procesar los archivos.")
+            # Limpiar flag después de mostrar
+            st.session_state.billing_type_just_changed = False
+        
+        # Mostrar información sobre el tipo seleccionado
+        if st.session_state.billing_type == "Financiera":
+            st.sidebar.info("📌 Modo Financiero: Un solo evento de facturación al 100% en el mes del SAT")
+        else:
+            st.sidebar.info("📌 Modo Contable: Múltiples eventos según reglas de negocio")
+        
+        st.sidebar.markdown("---")
+        
         # Configuración de reglas de negocio editables
         st.sidebar.header("⚙️ Reglas de Negocio")
         
@@ -181,6 +239,17 @@ class ForecastApp:
     
     def _render_main_content(self):
         """Renderiza el contenido principal con pestañas."""
+        # Mostrar título grande con el tipo de facturación actual
+        billing_type = st.session_state.get('billing_type', 'Contable')
+        if billing_type == "Financiera":
+            st.title("📊 MODO FINANCIERO - Facturación Consolidada en SAT")
+            st.caption("Un solo evento de facturación al 100% en el mes del SAT para todos los proyectos")
+        else:
+            st.title("📊 MODO CONTABLE - Facturación por Eventos")
+            st.caption("Múltiples eventos de facturación según reglas de negocio (INICIO, DR, FAT, SAT)")
+        
+        st.markdown("---")
+        
         tabs = st.tabs([
             "📊 Forecast", 
             "💰 Costo de Venta",
@@ -296,16 +365,25 @@ class ForecastApp:
             sapi_results = None
             llc_results = None
             
+            # Obtener tipo de facturación desde session state
+            billing_type = getattr(st.session_state, 'billing_type', 'Contable')
+            
             # Procesar archivo SAPI si está disponible
             if hasattr(st.session_state, 'uploaded_file_kpis'):
                 with st.spinner("Procesando KPIs SAPI (PM-008)..."):
-                    sapi_results = self.kpi_processor.process_kpi_file(st.session_state.uploaded_file_kpis)
+                    sapi_results = self.kpi_processor.process_kpi_file(
+                        st.session_state.uploaded_file_kpis, 
+                        billing_type=billing_type
+                    )
                     st.success(f"✅ SAPI: {sapi_results['filtered_count']} proyectos procesados")
             
             # Procesar archivo LLC si está disponible
             if hasattr(st.session_state, 'uploaded_file_llc'):
                 with st.spinner("Procesando KPIs LLC (iBtest)..."):
-                    llc_results = self.llc_kpi_processor.process_llc_file(st.session_state.uploaded_file_llc)
+                    llc_results = self.llc_kpi_processor.process_llc_file(
+                        st.session_state.uploaded_file_llc,
+                        billing_type=billing_type
+                    )
                     st.success(f"✅ LLC: {llc_results['filtered_count']} proyectos procesados")
             
             # Combinar resultados

@@ -30,23 +30,27 @@ class ForecastCalculator:
         """Inicializa el calculador con las reglas de negocio."""
         self.rules = BUSINESS_RULES
     
-    def calculate_forecast(self, opportunities: List[Opportunity]) -> List[BillingEvent]:
+    def calculate_forecast(self, opportunities: List[Opportunity], billing_type: str = "Contable") -> List[BillingEvent]:
         """
         Calcula el forecast completo para todas las oportunidades.
         
         Args:
             opportunities: Lista de oportunidades a procesar
+            billing_type: Tipo de facturación ("Contable" o "Financiera")
             
         Returns:
             List[BillingEvent]: Lista de eventos de facturación
         """
-        logger.info(f"Iniciando cálculo de forecast para {len(opportunities)} oportunidades")
+        logger.info(f"Iniciando cálculo de forecast para {len(opportunities)} oportunidades - Modo: {billing_type}")
         
         all_billing_events = []
         
         for opportunity in opportunities:
             try:
-                events = self._calculate_opportunity_billing(opportunity)
+                if billing_type == "Financiera":
+                    events = self._calculate_financial_billing(opportunity)
+                else:
+                    events = self._calculate_opportunity_billing(opportunity)
                 all_billing_events.extend(events)
                 
             except Exception as e:
@@ -56,9 +60,43 @@ class ForecastCalculator:
         logger.info(f"Forecast calculado: {len(all_billing_events)} eventos de facturación")
         return all_billing_events
     
+    def _calculate_financial_billing(self, opportunity: Opportunity) -> List[BillingEvent]:
+        """
+        Calcula facturación financiera: un solo evento al 100% en el mes del SAT.
+        
+        Args:
+            opportunity: Oportunidad a calcular
+            
+        Returns:
+            List[BillingEvent]: Un solo evento de facturación al 100% en SAT
+        """
+        # Determinar fecha SAT según BU
+        if opportunity.bu in [BusinessUnit.ICT, BusinessUnit.REP]:
+            # Para ICT/REP: usar SAT Date si existe, sino close_date + lead_time
+            if opportunity.sat_date:
+                sat_date = opportunity.sat_date
+            else:
+                sat_date = self._add_weeks(opportunity.close_date, opportunity.lead_time)
+        else:
+            # Para otras BUs: calcular SAT según reglas multi-etapa
+            inicio_date = opportunity.close_date
+            dr_date = self._add_days(inicio_date, self.rules.DR_DAYS_OFFSET)
+            fat_date = self._add_weeks(dr_date, opportunity.lead_time)
+            sat_date = self._add_days(fat_date, self.rules.SAT_DAYS_OFFSET)
+        
+        # Crear un solo evento al 100% del monto en SAT
+        event = self._create_billing_event(
+            opportunity=opportunity,
+            stage=BillingStage.SAT,
+            date=sat_date,
+            amount=opportunity.amount  # 100% del monto
+        )
+        
+        return [event]
+    
     def _calculate_opportunity_billing(self, opportunity: Opportunity) -> List[BillingEvent]:
         """
-        Calcula los eventos de facturación para una oportunidad específica.
+        Calcula los eventos de facturación para una oportunidad específica (modo Contable).
         
         Args:
             opportunity: Oportunidad a calcular

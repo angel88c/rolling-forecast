@@ -13,12 +13,13 @@ logger = logging.getLogger(__name__)
 class LLCKPIProcessor:
     """Procesa archivos de KPIs para LLC."""
     
-    def process_llc_file(self, file_path_or_buffer) -> Dict[str, Any]:
+    def process_llc_file(self, file_path_or_buffer, billing_type: str = "Contable") -> Dict[str, Any]:
         """
         Procesa archivo de KPIs LLC.
         
         Args:
             file_path_or_buffer: Ruta o buffer del archivo Excel
+            billing_type: Tipo de facturación ("Contable" o "Financiera")
             
         Returns:
             Dict con datos procesados y resumen
@@ -68,7 +69,7 @@ class LLCKPIProcessor:
                 return self._empty_result(len(df))
             
             # Crear tabla pivot estilo forecast
-            billing_table = self._create_billing_table(df_filtered)
+            billing_table = self._create_billing_table(df_filtered, billing_type=billing_type)
             
             return {
                 'data': billing_table,
@@ -166,16 +167,18 @@ class LLCKPIProcessor:
         logger.info(f"Datos limpios: {len(df)} registros válidos con monto total de ${df['Invoice Amount'].sum():,.2f}")
         return df
     
-    def _create_billing_table(self, df: pd.DataFrame) -> List[Dict]:
+    def _create_billing_table(self, df: pd.DataFrame, billing_type: str = "Contable") -> List[Dict]:
         """
         Crea tabla pivot estilo forecast.
         
         Args:
             df: DataFrame con datos limpios
+            billing_type: Tipo de facturación ("Contable" o "Financiera")
             
         Returns:
             Lista de diccionarios con datos para la tabla
         """
+        logger.info(f"Creando tabla de billing LLC en modo: {billing_type}")
         if df.empty:
             return []
         
@@ -229,11 +232,23 @@ class LLCKPIProcessor:
             for month in unique_months:
                 row[month] = 0
             
-            # Asignar monto al mes correspondiente (ya ordenado por fecha)
-            for _, event in project_data.iterrows():
-                month = event['Mes Facturación']
-                if month in row:
-                    row[month] += event['Invoice Amount']
+            # Asignar montos según tipo de facturación
+            if billing_type == "Financiera":
+                # Modo Financiero: Todo el monto total en el último mes de facturación
+                # Ordenar por fecha para encontrar el último evento
+                project_data_sorted = project_data.sort_values('Invoice Date')
+                last_month = project_data_sorted.iloc[-1]['Mes Facturación']
+                
+                # Asignar el total del proyecto en el último mes (sin factores de castigo)
+                if last_month in row:
+                    row[last_month] = row['Total PO']  # Total PO es la suma de todos los invoices
+                    logger.debug(f"Proyecto LLC '{project_name}' - Modo Financiero: ${row['Total PO']:,.2f} en {last_month}")
+            else:
+                # Modo Contable: Distribuir según fechas de invoice individuales
+                for _, event in project_data.iterrows():
+                    month = event['Mes Facturación']
+                    if month in row:
+                        row[month] += event['Invoice Amount']
             
             projects.append(row)
         

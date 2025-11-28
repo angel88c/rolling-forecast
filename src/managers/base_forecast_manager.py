@@ -127,8 +127,9 @@ class BaseForecastManager:
                 # Mostrar info de filtrado
                 self.show_filter_info(len(opportunities), len(opportunities_all))
                 
-                # Paso 7: Calcular forecast
-                billing_events = self.calculator.calculate_forecast(opportunities)
+                # Paso 7: Calcular forecast con tipo de facturación
+                billing_type = getattr(st.session_state, 'billing_type', 'Contable')
+                billing_events = self.calculator.calculate_forecast(opportunities, billing_type=billing_type)
                 
                 # Paso 8: Generar resumen y tablas
                 summary = self.calculator.generate_forecast_summary(billing_events)
