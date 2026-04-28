@@ -289,9 +289,9 @@ class KPIProcessor:
                 'Costo de Venta': float(project_data['Costo de Venta'].iloc[0]) if 'Costo de Venta' in project_data.columns and len(project_data) > 0 else 0
             }
             
-            # Inicializar todos los meses en 0
+            # Inicializar todos los meses en 0.0 (float) para evitar int64 en pandas 2.x
             for month in unique_months:
-                row[month] = 0
+                row[month] = 0.0
             
             # Asignar montos según tipo de facturación
             if billing_type == "Financiera":

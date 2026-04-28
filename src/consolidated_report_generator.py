@@ -308,9 +308,9 @@ class ConsolidatedReportGenerator:
         # Crear tabla base con información del proyecto
         df_cost = df_billing[['Proyecto', 'BU', 'Location', 'Status', 'Customer', 'Costo de Venta']].copy()
         
-        # Inicializar columnas de meses con 0
+        # Inicializar columnas de meses con 0.0 (float) para evitar int64 en pandas 2.x
         for month in month_cols:
-            df_cost[month] = 0
+            df_cost[month] = 0.0
         
         # Para cada proyecto, encontrar el último mes con facturación y asignar el costo ahí
         for idx in df_billing.index:
